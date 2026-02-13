@@ -30,7 +30,7 @@ export async function GET(request: Request) {
     }
 
     // Remove duplicates
-    rawSuggestions = [...new Set(rawSuggestions)];
+    rawSuggestions = Array.from(new Set(rawSuggestions));
 
     if (rawSuggestions.length === 0) {
       return NextResponse.json({
