@@ -57,7 +57,7 @@ export default function Home() {
         <>
           {/* 1. Visualization */}
           <div className="w-full flex justify-center mb-12 fade-in">
-             <BtoWheel data={results.treeData} />
+             <BtoWheel data={results.wheelData} />
           </div>
 
           {/* 2. Data Tables */}
