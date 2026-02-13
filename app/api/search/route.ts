@@ -1,47 +1,48 @@
 import { NextResponse } from "next/server";
 
-async function fetchSuggestions(source: "web" | "youtube", keyword: string) {
-  const ds = source === "youtube" ? "&ds=yt" : "";
-  const url = `https://suggestqueries.google.com/complete/search?client=firefox&gl=sg${ds}&q=${encodeURIComponent(keyword)}`;
-  try {
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
-    const data = await res.json();
-    return data[1] || [];
-  } catch (e) { return []; }
+async function fetchSuggestions(keyword: string) {
+  // SEO Modifiers: Alphabet soup + Question starters
+  const modifiers = ["", "how", "price", "review", "contractor", "a", "b", "c", "d"];
+  let results: string[] = [];
+
+  for (const m of modifiers) {
+    const query = m ? `${keyword} ${m}` : keyword;
+    const url = `https://suggestqueries.google.com/complete/search?client=firefox&gl=sg&hl=en-GB&q=${encodeURIComponent(query)}`;
+    try {
+      const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+      const data = await res.json();
+      if (data[1]) results.push(...data[1]);
+    } catch (e) { continue; }
+  }
+  return Array.from(new Set(results));
 }
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get("q") || "";
 
-  // 1. Fetch RAW Data (The Sources)
-  const [organic, youtube] = await Promise.all([
-    fetchSuggestions("web", query),
-    fetchSuggestions("youtube", query),
-  ]);
+  const allKeywords = await fetchSuggestions(query);
+  const topKeywords = allKeywords.slice(0, 40); // Select top 40 for scoring
 
-  // 2. Build the Wheel Structure (PURELY Google Autocomplete)
-  // We group the organic results by their first word to create "branches"
-  const branches: Record<string, any> = {};
-  organic.forEach((s: string) => {
-    const firstWord = s.split(" ")[0].toLowerCase();
-    if (!branches[firstWord]) branches[firstWord] = [];
-    branches[firstWord].push({ name: s });
-  });
-
-  const wheelData = {
-    name: query.toUpperCase(),
-    children: Object.keys(branches).map(key => ({
-      name: key.toUpperCase(),
-      children: branches[key]
-    }))
-  };
-
-  // 3. Gemini ONLY generates AI Prompts (Separate lane)
   const apiKey = process.env.GEMINI_API_KEY;
-  const prompt = `Based on the keyword "${query}", generate 6 unique AI prompts a user would ask a chatbot. Return ONLY JSON: {"prompts": [{"text": "...", "intent": "I"}]}`;
+  const prompt = `
+    Act as a Singapore SEO Strategist. Analyze these keywords for "${query}":
+    ${topKeywords.join(", ")}
 
-  let aiPrompts = [];
+    For each keyword, estimate:
+    1. SearchVolume: A relative number between 500 and 50000 based on Singapore HDB/Property trends.
+    2. Difficulty: 1-10 (How hard to rank on Google SG).
+    3. Opportunity: A short SEO tip.
+
+    Organize the keywords into a Mind Map with 4 branches: "High Volume", "Low Hanging Fruit", "Financial/Grants", and "Comparison".
+
+    Return ONLY JSON:
+    {
+      "tableData": [ {"keyword": "...", "vol": 1200, "diff": 3, "tip": "..."} ],
+      "wheelData": { "name": "${query}", "children": [...] }
+    }
+  `;
+
   try {
     const geminiRes = await fetch(
       `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
@@ -54,15 +55,9 @@ export async function GET(request: Request) {
     const gData = await geminiRes.json();
     const text = gData.candidates[0].content.parts[0].text;
     const cleaned = JSON.parse(text.replace(/```json|```/g, ""));
-    aiPrompts = cleaned.prompts;
-  } catch (e) {
-    aiPrompts = [{ text: `How to start with ${query}?`, intent: "I" }];
-  }
 
-  return NextResponse.json({
-    wheelData,    // For the middle chart (Google only)
-    aiPrompts,    // For the AI section (Gemini only)
-    youtube,      // For Social section (YouTube only)
-    organic       // For Organic table
-  });
+    return NextResponse.json(cleaned);
+  } catch (e) {
+    return NextResponse.json({ error: "Failed to fetch SEO metrics" });
+  }
 }

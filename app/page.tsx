@@ -28,10 +28,10 @@ export default function Home() {
       {/* Header */}
       <div className="text-center max-w-2xl mb-10">
         <h1 className="text-5xl font-extrabold mb-4 text-gray-800 tracking-tight">
-          BTO <span className="text-orange-500">Answer Finder</span>
+          BTO <span className="text-orange-500">SEO Planner</span>
         </h1>
         <p className="text-gray-500 text-lg">
-          Discover what Singaporeans are asking on Google, YouTube, and AI.
+          Discover Singapore BTO keywords with AI-powered SEO metrics.
         </p>
       </div>
 
@@ -60,12 +60,8 @@ export default function Home() {
              <BtoWheel data={results.wheelData} />
           </div>
 
-          {/* 2. Data Tables */}
-          <ResultTables 
-            organic={results.organic} 
-            youtube={results.youtube} 
-            aiPrompts={results.aiPrompts} 
-          />
+          {/* 2. SEO Data Table */}
+          <ResultTables tableData={results.tableData} />
         </>
       )}
     </main>

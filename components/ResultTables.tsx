@@ -1,53 +1,51 @@
 import React from 'react';
 
-const ResultRow = ({ icon, text, type, badgeColor }: any) => (
-  <div className="flex items-center justify-between p-3 border-b hover:bg-gray-50">
-    <div className="flex items-center gap-3">
-      <span className="w-6 text-center">{icon}</span>
-      <span className="text-sm font-medium text-gray-700 truncate max-w-[200px] md:max-w-md">{text}</span>
-    </div>
-    <span className={`px-2 py-0.5 text-[10px] font-bold rounded text-white ${badgeColor}`}>
-      {type}
-    </span>
-  </div>
-);
+export default function ResultTables({ tableData }: { tableData: any[] }) {
+  if (!tableData) return null;
 
-export default function ResultTables({ organic, youtube, aiPrompts }: any) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-6xl mt-12 pb-20">
+    <div className="w-full max-w-6xl mt-12 bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
+      <div className="bg-gray-900 p-6">
+        <h2 className="text-white text-xl font-bold">Singapore SEO Campaign Planner</h2>
+        <p className="text-gray-400 text-sm">Targeting: Google.com.sg (English)</p>
+      </div>
       
-      {/* 1. AI LANE (Gemini) */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-purple-100">
-        <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-purple-700">
-          ✨ AI Content Prompts
-        </h3>
-        {aiPrompts.map((item: any, i: number) => (
-          <ResultRow key={i} icon="🪄" text={item.text} type="GEMINI" badgeColor="bg-purple-500" />
-        ))}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left">
+          <thead className="bg-gray-50 border-b">
+            <tr>
+              <th className="p-4 text-xs font-bold text-gray-500 uppercase">Keyword</th>
+              <th className="p-4 text-xs font-bold text-gray-500 uppercase">Est. Monthly Volume (SG)</th>
+              <th className="p-4 text-xs font-bold text-gray-500 uppercase">SEO Difficulty</th>
+              <th className="p-4 text-xs font-bold text-gray-500 uppercase">Strategy Tip</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tableData.map((row, i) => (
+              <tr key={i} className="border-b hover:bg-blue-50/50 transition">
+                <td className="p-4 font-semibold text-gray-800">{row.keyword}</td>
+                <td className="p-4">
+                  <span className="text-blue-600 font-mono font-bold">
+                    {row.vol.toLocaleString()}
+                  </span>
+                </td>
+                <td className="p-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-16 bg-gray-200 h-2 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full ${row.diff > 7 ? 'bg-red-500' : row.diff > 4 ? 'bg-orange-500' : 'bg-green-500'}`}
+                        style={{ width: `${row.diff * 10}%` }}
+                      />
+                    </div>
+                    <span className="text-xs font-bold">{row.diff}/10</span>
+                  </div>
+                </td>
+                <td className="p-4 text-sm text-gray-600 italic">"{row.tip}"</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-
-      {/* 2. ORGANIC LANE (Google) */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-100">
-        <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-blue-700">
-          🔍 Google Search Results
-        </h3>
-        {organic.slice(0, 6).map((text: string, i: number) => (
-          <ResultRow key={i} icon="G" text={text} type="SEARCH" badgeColor="bg-blue-500" />
-        ))}
-      </div>
-
-      {/* 3. SOCIAL MEDIA (YouTube) */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-red-100 md:col-span-2">
-        <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-red-700">
-          🎥 Video & Social Search (YouTube)
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
-          {youtube.map((text: string, i: number) => (
-            <ResultRow key={i} icon="▶" text={text} type="YOUTUBE" badgeColor="bg-red-500" />
-          ))}
-        </div>
-      </div>
-
     </div>
   );
 }
