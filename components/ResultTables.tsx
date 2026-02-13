@@ -26,7 +26,7 @@ export default function ResultTables({ tableData }: { tableData: any[] }) {
                 <td className="p-4 font-semibold text-gray-800">{row.keyword}</td>
                 <td className="p-4">
                   <span className="text-blue-600 font-mono font-bold">
-                    {row.vol.toLocaleString()}
+                    {typeof row.vol === 'number' ? row.vol.toLocaleString() : row.vol}
                   </span>
                 </td>
                 <td className="p-4">

@@ -54,9 +54,17 @@ export async function GET(request: Request) {
     );
     const gData = await geminiRes.json();
     const text = gData.candidates[0].content.parts[0].text;
-    const cleaned = JSON.parse(text.replace(/```json|```/g, ""));
 
-    return NextResponse.json(cleaned);
+    // This regex is the "Safety Net" for AI-generated JSON
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const cleaned = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+
+    if (!cleaned) throw new Error("Could not parse AI response");
+
+    return NextResponse.json({
+      tableData: cleaned.tableData || [],
+      wheelData: cleaned.wheelData || { name: query, children: [] }
+    });
   } catch (e) {
     return NextResponse.json({ error: "Failed to fetch SEO metrics" });
   }
