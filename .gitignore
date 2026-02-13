@@ -35,3 +35,6 @@ next-env.d.ts
 
 # backup
 trash-backup/
+
+# lockfile (force fresh install on deploy)
+package-lock.json

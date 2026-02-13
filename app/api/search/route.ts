@@ -41,7 +41,7 @@ export async function GET(request: Request) {
     }
 
     // 2. Use Gemini to structure and organize (The "Brain")
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     
     const prompt = `
       I have a list of search suggestions related to "${query}": ${rawSuggestions.slice(0, 30).join(", ")}.
