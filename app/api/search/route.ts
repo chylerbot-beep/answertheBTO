@@ -3,16 +3,22 @@ import { NextResponse } from "next/server";
 // ─── Google Autocomplete (free, no key) ────────────────────────────────────
 async function fetchAutocompleteSuggestions(keyword: string): Promise<string[]> {
   const modifiers = [
-    "", "what", "how", "why", "when", "where", "which", "who", "can", "is",
-    "price", "review", "vs", "best", "near",
-    "a", "b", "c", "d", "e", "f", "g", "h"
+    // Post-modifiers (keyword + m)
+    "", "price", "review", "vs", "best", "near", "singapore", "hdb", "application",
+    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+    "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
+    // Pre-modifiers (m + keyword) will be handled by logic below
+    "how to", "what is", "when", "where", "can i"
   ];
-  const allResults: string[] = [];
 
+  const allResults: string[] = [];
   const batches = [];
+
+  // 1. Standard "Keyword + Modifier"
   for (const m of modifiers) {
-    const query = m ? `${keyword} ${m}` : keyword;
-    const url = `https://suggestqueries.google.com/complete/search?client=firefox&gl=sg&hl=en-GB&q=${encodeURIComponent(query)}`;
+    const query = m.includes(" ") ? `${m} ${keyword}` : `${keyword} ${m}`; // Simple heuristic
+    const url = `https://suggestqueries.google.com/complete/search?client=firefox&gl=sg&hl=en-GB&q=${encodeURIComponent(query.trim())}`;
+
     batches.push(
       fetch(url, {
         headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
@@ -23,14 +29,28 @@ async function fetchAutocompleteSuggestions(keyword: string): Promise<string[]> 
     );
   }
 
+  // 2. Specific "Question + Keyword" loop for better PAA foundation
+  const questionStarters = ["how to", "what is", "why", "when is", "where to", "can", "is"];
+  for (const q of questionStarters) {
+    batches.push(
+      fetch(`https://suggestqueries.google.com/complete/search?client=firefox&gl=sg&hl=en-GB&q=${encodeURIComponent(`${q} ${keyword}`)}`, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+      })
+        .then((r) => r.json())
+        .then((d) => (d[1] as string[]) || [])
+        .catch(() => [] as string[])
+    );
+  }
+
   const results = await Promise.all(batches);
   for (const r of results) allResults.push(...r);
+
   return Array.from(new Set(allResults));
 }
 
 // ─── Categorize keywords into question vs organic ──────────────────────────
 function categorizeKeywords(keywords: string[]) {
-  const questionStarters = ["what", "how", "why", "when", "where", "which", "who", "can", "is", "do", "does", "will", "should"];
+  const questionStarters = ["what", "how", "why", "when", "where", "which", "who", "can", "is", "do", "does", "will", "should", "are"];
   const questions: string[] = [];
   const organic: string[] = [];
 
@@ -45,82 +65,86 @@ function categorizeKeywords(keywords: string[]) {
   return { questions, organic };
 }
 
-// ─── Build People Also Ask tree from questions ─────────────────────────────
-function buildQuestionTree(keyword: string, questions: string[]) {
-  // Group questions by their starter word
+// ─── Fallback PAA Builder (if Gemini fails) ──────────────────────────────
+function buildFallbackTree(keyword: string, questions: string[]) {
   const groups: Record<string, string[]> = {};
-  for (const q of questions) {
-    const words = q.toLowerCase().split(" ");
-    // Create branch names like "What is a BTO?" from first few words
-    const branchKey = words.slice(0, Math.min(5, words.length)).join(" ");
-    if (!groups[branchKey]) groups[branchKey] = [];
-    groups[branchKey].push(q);
-  }
-
-  // If too many branches, re-group by first 3-4 words
-  const starterGroups: Record<string, string[]> = {};
   for (const q of questions) {
     const words = q.split(" ");
     const key = words.slice(0, Math.min(4, Math.ceil(words.length / 2))).join(" ");
-    if (!starterGroups[key]) starterGroups[key] = [];
-    starterGroups[key].push(q);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(q);
   }
 
-  // Build hierarchy: keyword → grouped questions → individual questions
-  const children = Object.entries(starterGroups)
-    .slice(0, 8) // max 8 branches
+  const children = Object.entries(groups)
+    .slice(0, 8)
     .map(([branch, qs]) => ({
-      name: branch.length > 40 ? branch.slice(0, 40) + "…" : branch,
-      children: qs.slice(0, 8).map((q) => ({ name: q })),
+      name: branch,
+      children: qs.slice(0, 6).map((q) => ({ name: q })),
     }));
 
   return { name: keyword, children };
 }
 
-// ─── Gemini AI for enrichment ──────────────────────────────────────────────
+// ─── Gemini AI for enrichment & PAA Generation ─────────────────────────────
 async function enrichWithGemini(keyword: string, organicKeywords: string[], questions: string[]) {
   const apiKey = process.env.GEMINI_API_KEY;
+
   if (!apiKey) {
-    return generateFallbackData(keyword, organicKeywords, questions);
+    // Return fallback if no key
+    return {
+      summary: { searchVolume: 0, cpc: 0, volumeLevel: "N/A", cpcLevel: "N/A" },
+      peopleAlsoAsk: buildFallbackTree(keyword, questions),
+      aiPrompts: [], organicSearches: [], socialMedia: { youtube: [], tiktok: [], instagram: [] }
+    };
   }
 
-  const prompt = `You are an SEO analyst specializing in Singapore property/housing. Analyze the keyword "${keyword}" and the following related keywords.
+  const prompt = `
+    Context: Singapore Housing / BTO / Real Estate.
+    Role: Senior SEO Strategist.
+    Task: deeply analyze the keyword "${keyword}" and provided data to generate a rich JSON report.
 
-Organic keywords: ${organicKeywords.slice(0, 25).join(", ")}
-Question keywords: ${questions.slice(0, 15).join(", ")}
+    Input Data:
+    - Detected Questions: ${questions.slice(0, 10).join(", ")}
+    - detected Keywords: ${organicKeywords.slice(0, 10).join(", ")}
 
-Return ONLY valid JSON (no markdown, no code fences) with this exact structure:
-{
-  "summary": {
-    "searchVolume": <number, estimated monthly search volume in Singapore, between 100-50000>,
-    "cpc": <number, estimated CPC in USD, between 0.10-5.00>,
-    "volumeLevel": "<High|Medium|Low>",
-    "cpcLevel": "<High|Medium|Low>"
-  },
-  "aiPrompts": [
+    Requirements:
+    1. **peopleAlsoAsk**: Generate a MASSIVE, deeply nested tree of questions specifically about "${keyword}" in Singapore.
+       - Structure: Root -> 4-6 Main Categories -> 5-8 Specific Questions per category.
+       - Questions must be highly relevant to Singapore (mention HDB, BTO, CPF, grants, etc. where applicable).
+       - Total questions should be 20-30+.
+    
+    2. **summary**: Estimate monthly search volume and CPC in Singapore (SGD/USD).
+    
+    3. **aiPrompts**: Generate 8 unique, high-intent prompts users might ask an AI about this topic.
+    
+    4. **organicSearches** & **socialMedia**: Enrich the provided list or generate new Singapore-trend-relevant keywords.
+
+    Return ONLY valid JSON:
     {
-      "prompt": "<a natural question users might ask, phrased as a full sentence>",
-      "intent": "<informational|transactional|navigational|commercial>",
-      "sentiment": "<positive|negative|neutral>",
-      "brands": ["<relevant brand/org names, e.g. HDB, Tampines Bliss, etc>"]
+      "summary": {
+        "searchVolume": <number>,
+        "cpc": <number>,
+        "volumeLevel": "<High|Medium|Low>",
+        "cpcLevel": "<High|Medium|Low>"
+      },
+      "peopleAlsoAsk": {
+        "name": "${keyword}",
+        "children": [
+          {
+            "name": "<Category, e.g. Eligibility>",
+            "children": [
+              { "name": "<Specific Question 1>" },
+              { "name": "<Specific Question 2>" }
+            ]
+          }
+           ... (at least 4 categories)
+        ]
+      },
+      "aiPrompts": [ ... ],
+      "organicSearches": [ ... ],
+      "socialMedia": { "youtube": [...], "tiktok": [...], "instagram": [...] }
     }
-  ],
-  "organicSearches": [
-    {
-      "keyword": "<the keyword>",
-      "volume": <estimated monthly volume>,
-      "cpc": <estimated CPC in USD>,
-      "modifier": "<alphabeticals / first_letter>"
-    }
-  ],
-  "socialMedia": {
-    "youtube": [{"keyword": "<keyword>", "volume": <number>, "cpc": <number>}],
-    "tiktok": [{"keyword": "<keyword>", "volume": <number>, "cpc": <number>}],
-    "instagram": [{"keyword": "<keyword>", "volume": <number>, "cpc": <number>}]
-  }
-}
-
-Generate 6-8 aiPrompts, enrich all provided organic keywords with estimated metrics, and generate 5-8 social media keywords per platform. Make the estimates realistic for Singapore market.`;
+  `;
 
   try {
     const res = await fetch(
@@ -130,102 +154,62 @@ Generate 6-8 aiPrompts, enrich all provided organic keywords with estimated metr
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 4096,
-          },
+          generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
         }),
       }
     );
 
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-    // Extract JSON from response (handle markdown code fences)
     const jsonMatch = text.match(/\{[\s\S]*\}/);
+
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]);
     }
   } catch (e) {
-    console.error("Gemini error:", e);
+    console.error("Gemini Error:", e);
   }
 
-  return generateFallbackData(keyword, organicKeywords, questions);
+  return null; // Signals to use fallback
 }
 
-// ─── Fallback data when Gemini is unavailable ──────────────────────────────
-function generateFallbackData(keyword: string, organicKeywords: string[], questions: string[]) {
-  return {
-    summary: {
-      searchVolume: Math.floor(Math.random() * 15000) + 1000,
-      cpc: +(Math.random() * 2 + 0.1).toFixed(2),
-      volumeLevel: "Medium",
-      cpcLevel: "Low",
-    },
-    aiPrompts: questions.slice(0, 8).map((q) => ({
-      prompt: q,
-      intent: "informational",
-      sentiment: "neutral",
-      brands: [],
-    })),
-    organicSearches: organicKeywords.slice(0, 20).map((kw) => ({
-      keyword: kw,
-      volume: Math.floor(Math.random() * 5000) + 100,
-      cpc: +(Math.random() * 2 + 0.1).toFixed(2),
-      modifier: `alphabeticals / ${kw.replace(keyword, "").trim().charAt(0) || "a"}`,
-    })),
-    socialMedia: {
-      youtube: organicKeywords.slice(0, 6).map((kw) => ({
-        keyword: kw,
-        volume: Math.floor(Math.random() * 5000) + 50,
-        cpc: +(Math.random() * 3 + 0.2).toFixed(2),
-      })),
-      tiktok: organicKeywords.slice(3, 9).map((kw) => ({
-        keyword: kw,
-        volume: Math.floor(Math.random() * 3000) + 50,
-        cpc: +(Math.random() * 2 + 0.1).toFixed(2),
-      })),
-      instagram: organicKeywords.slice(5, 11).map((kw) => ({
-        keyword: kw,
-        volume: Math.floor(Math.random() * 2000) + 30,
-        cpc: +(Math.random() * 4 + 0.3).toFixed(2),
-      })),
-    },
-  };
-}
-
-// ─── Main handler ──────────────────────────────────────────────────────────
+// ─── Main Handler ──────────────────────────────────────────────────────────
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get("q")?.trim();
-
-  if (!query) {
-    return NextResponse.json({ error: "Missing query parameter 'q'" }, { status: 400 });
-  }
+  if (!query) return NextResponse.json({ error: "Missing query parameter 'q'" }, { status: 400 });
 
   try {
-    // 1. Fetch autocomplete suggestions
+    // 1. Fetch real autocomplete data (foundation)
     const allKeywords = await fetchAutocompleteSuggestions(query);
-
-    // 2. Categorize
     const { questions, organic } = categorizeKeywords(allKeywords);
 
-    // 3. Build People Also Ask tree
-    const peopleAlsoAsk = buildQuestionTree(query, questions);
+    // 2. Try Gemini Enrichment (Primary)
+    let enriched = await enrichWithGemini(query, organic, questions);
 
-    // 4. Enrich with Gemini AI
-    const enriched = await enrichWithGemini(query, organic, questions);
+    // 3. Fallback if Gemini fails
+    if (!enriched) {
+      enriched = {
+        summary: { searchVolume: 1000, cpc: 1.0, volumeLevel: "Medium", cpcLevel: "Low" },
+        peopleAlsoAsk: buildFallbackTree(query, questions),
+        aiPrompts: [],
+        organicSearches: organic.map(k => ({ keyword: k, volume: 0, cpc: 0 })),
+        socialMedia: { youtube: [], tiktok: [], instagram: [] }
+      };
+    }
 
+    // 4. Merge/Ensure structure
     return NextResponse.json({
       query,
       summary: enriched.summary,
-      peopleAlsoAsk,
-      aiPrompts: enriched.aiPrompts || [],
-      organicSearches: enriched.organicSearches || [],
-      socialMedia: enriched.socialMedia || { youtube: [], tiktok: [], instagram: [] },
+      peopleAlsoAsk: enriched.peopleAlsoAsk, // Now sourced from Gemini for depth
+      aiPrompts: enriched.aiPrompts,
+      organicSearches: enriched.organicSearches,
+      socialMedia: enriched.socialMedia
     });
+
   } catch (error) {
-    console.error("Search API error:", error);
-    return NextResponse.json({ error: "Failed to process search" }, { status: 500 });
+    console.error("API Error:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
